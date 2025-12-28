@@ -594,7 +594,7 @@ def hash_senha(senha):
 
 
 # =====================================================
-# CRIAR USUÁRIO
+# CRIAR USUÁRIO — POSTGRES
 # =====================================================
 def criar_usuario(usuario, senha, perfil):
     conn = get_conn()
@@ -603,7 +603,7 @@ def criar_usuario(usuario, senha, perfil):
     try:
         c.execute("""
             INSERT INTO usuarios (usuario, senha, perfil, ativo, criado_em)
-            VALUES (?, ?, ?, 1, ?)
+            VALUES (%s, %s, %s, 1, %s)
         """, (
             usuario,
             hash_senha(senha),
@@ -614,13 +614,12 @@ def criar_usuario(usuario, senha, perfil):
         conn.commit()
         sucesso = True
 
-    except sqlite3.IntegrityError:
+    except Exception:
+        conn.rollback()
         sucesso = False
 
     conn.close()
     return sucesso
-
-
 # =====================================================
 # VALIDAR LOGIN
 # =====================================================
