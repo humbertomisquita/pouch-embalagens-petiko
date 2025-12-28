@@ -566,7 +566,8 @@ st.markdown(
 import hashlib
 
 # =====================================================
-# CRIA TABELA DE USUÁRIOS (SE NÃO EXISTIR)
+# CRIA TABELA DE USUÁRIOS (POSTGRES)
+# 🔁 MIGRAÇÃO POSTGRES — ajuste AUTOINCREMENT → SERIAL
 # =====================================================
 def criar_tabela_usuarios():
     conn = get_conn()
@@ -574,7 +575,7 @@ def criar_tabela_usuarios():
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS usuarios (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             usuario TEXT UNIQUE NOT NULL,
             senha TEXT NOT NULL,
             perfil TEXT NOT NULL,
@@ -585,8 +586,6 @@ def criar_tabela_usuarios():
 
     conn.commit()
     conn.close()
-
-
 # =====================================================
 # HASH DE SENHA
 # =====================================================
