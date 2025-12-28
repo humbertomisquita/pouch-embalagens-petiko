@@ -729,3 +729,132 @@ with st.sidebar:
         """,
         unsafe_allow_html=True
     )
+# =====================================================
+# MÓDULO 3 — MENU PRINCIPAL
+# =====================================================
+
+# menu padrão (segurança)
+if "menu" not in st.session_state:
+    st.session_state["menu"] = "📦 Produtos"
+# =====================================================
+# 🔑 ALTERAR SENHA — APENAS USUÁRIO LOGADO
+# =====================================================
+if st.session_state.get("logado"):
+
+    with st.sidebar:
+
+        with st.expander("🔑 Alterar senha", expanded=False):
+
+            nova = st.text_input(
+                "Nova senha",
+                type="password",
+                key="nova_senha"
+            )
+
+            confirmar = st.text_input(
+                "Confirmar nova senha",
+                type="password",
+                key="conf_senha"
+            )
+
+            if st.button("Salvar nova senha"):
+                if not nova or not confirmar:
+                    st.error("Informe a nova senha.")
+                elif nova != confirmar:
+                    st.error("As senhas não conferem.")
+                elif len(nova) < 4:
+                    st.error("A senha deve ter pelo menos 4 caracteres.")
+                else:
+                    alterar_senha(
+                        st.session_state["usuario"],
+                        nova
+                    )
+                    st.success("Senha alterada com sucesso.")
+# =====================================================
+# PERMISSÕES POR PERFIL
+# =====================================================
+PERMISSOES_MENU = {
+    "ANALISTA": [
+        "📦 Produtos",
+        "🧾 Pedidos",
+        "📋 Estoque",
+        "🏭 Innova",
+        "🕵️ Analista",
+        "🗂️ Gerenciador",
+        "📍 Acompanhar Fluxo",
+        "👤 Usuários"
+    ],
+    "PRODUTO": [
+        "📦 Produtos",
+        "🧾 Pedidos",
+        "📍 Acompanhar Fluxo"
+    ],
+    "ESTOQUE": [
+        "📦 Produtos",
+        "📋 Estoque",
+        "📍 Acompanhar Fluxo"
+    ],
+    "INNOVA": [
+        "🏭 Innova",
+        "📍 Acompanhar Fluxo"
+    ]
+}
+
+with st.sidebar:
+
+    # ============================
+    # 🔐 CONTROLE DE SESSÃO
+    # ============================
+    if "logado" not in st.session_state or not st.session_state.get("logado"):
+        st.warning("Sessão expirada. Faça login novamente.")
+        st.stop()
+
+    perfil = st.session_state.get("perfil")
+
+    # ============================
+    # 🛡️ PERMISSÕES DE MENU
+    # ============================
+    menu_opcoes = PERMISSOES_MENU.get(perfil, [])
+
+    if not menu_opcoes:
+        st.error("Perfil sem permissões configuradas.")
+        st.stop()
+
+    # ============================
+    # 📋 MENU
+    # ============================
+    escolha = st.radio(
+        "Menu",
+        menu_opcoes,
+        key="menu_radio"
+    )
+
+    # sincroniza com session_state
+    st.session_state["menu"] = escolha
+
+    # ============================
+    # 🚪 LOGOUT (PORTA DE SAÍDA)
+    # ============================
+    st.divider()
+
+    if st.button("🚪 Logout", use_container_width=True):
+
+        # 🔒 bloqueia relogin automático
+        st.session_state["bloquear_cookie"] = True
+
+        # remove cookie explicitamente
+        cookies["logado"] = ""
+        cookies["usuario"] = ""
+        cookies["perfil"] = ""
+        cookies.save()
+
+        # limpa sessão
+        st.session_state["logado"] = False
+        st.session_state["usuario"] = None
+        st.session_state["perfil"] = None
+
+        st.rerun()
+# =====================================================
+# VARIÁVEL GLOBAL USADA PELO SISTEMA
+# =====================================================
+menu = st.session_state["menu"]
