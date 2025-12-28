@@ -1317,7 +1317,6 @@ if menu == "🧾 Pedidos":
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from datetime import datetime
-import os
 
 
 def gerar_pdf_estoque(pedido):
@@ -1326,17 +1325,7 @@ def gerar_pdf_estoque(pedido):
     Retorna o nome do arquivo gerado.
     """
 
-    # =================================================
-    # 🔁 AJUSTE ÚNICO NECESSÁRIO (STREAMLIT CLOUD)
-    # =================================================
-    pasta_tmp = "/tmp"
-    os.makedirs(pasta_tmp, exist_ok=True)
-
-    nome = os.path.join(
-        pasta_tmp,
-        f"RELATORIO_ESTOQUE_{pedido}_{datetime.now().strftime('%d-%m-%Y')}.pdf"
-    )
-
+    nome = f"RELATORIO_ESTOQUE_{pedido}_{datetime.now().strftime('%d-%m-%Y')}.pdf"
     c = canvas.Canvas(nome, pagesize=A4)
     w, h = A4
 
@@ -1504,7 +1493,7 @@ if menu == "📋 Estoque":
                     st.download_button(
                         "⬇️ Baixar PDF",
                         data=f,
-                        file_name=os.path.basename(arq),
+                        file_name=arq,
                         mime="application/pdf"
                     )
 
@@ -1547,7 +1536,6 @@ if menu == "📋 Estoque":
                     "Estoque abatido e pedido enviado para Montagem."
                 )
                 st.rerun()
-
 # =====================================================
 # ======================== PDF INNOVA =================
 # =====================================================
@@ -1555,7 +1543,6 @@ if menu == "📋 Estoque":
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from datetime import datetime
-import os
 
 
 # -----------------------------------------------------
@@ -1579,6 +1566,7 @@ def desenhar_tabela(c, x, y, titulo, linhas):
     c.drawString(x, y, titulo)
     y -= 18
 
+    # Cabeçalho
     c.setFont("Helvetica-Bold", 10)
     c.drawString(x, y, "SKU")
     c.drawString(x + 120, y, "Descrição")
@@ -1607,15 +1595,7 @@ def desenhar_tabela(c, x, y, titulo, linhas):
 # GERA ROMANEIO PDF — INNOVA (MODELO VALIDADO)
 # -----------------------------------------------------
 def gerar_romaneio(pedido, dados):
-
-    pasta_tmp = "/tmp"
-    os.makedirs(pasta_tmp, exist_ok=True)
-
-    nome = os.path.join(
-        pasta_tmp,
-        f"ROMANEIO_{pedido}_{datetime.now().strftime('%d-%m-%Y')}.pdf"
-    )
-
+    nome = f"ROMANEIO_{pedido}_{datetime.now().strftime('%d-%m-%Y')}.pdf"
     c = canvas.Canvas(nome, pagesize=A4)
     w, h = A4
 
@@ -1707,6 +1687,7 @@ def gerar_romaneio(pedido, dados):
 
     c.save()
     return nome
+
 # =====================================================
 # MÓDULO 7 — 🏭 INNOVA
 # =====================================================
@@ -1951,7 +1932,7 @@ if menu == "🏭 Innova":
                             st.download_button(
                                 "⬇️ Finalizar",
                                 data=f,
-                                file_name=os.path.basename(pdf),
+                                file_name=pdf,
                                 mime="application/pdf",
                                 key=f"down_{pedido}"
                             )
