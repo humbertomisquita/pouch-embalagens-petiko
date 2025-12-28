@@ -15,6 +15,8 @@ from datetime import datetime
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from streamlit_cookies_manager import EncryptedCookieManager
+import streamlit as st
+st.write(st.secrets["database"]["host"])
 
 st.session_state.setdefault("bloquear_cookie", False)
 
