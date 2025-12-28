@@ -1,5 +1,5 @@
 # =====================================================
-# MÓDULO 1 — BASE FUNCIONAL GLOBAL (SUPABASE / POSTGRES)
+# MÓDULO 1 — BASE FUNCIONAL GLOBAL (SQLITE)
 # =====================================================
 
 # ========================
@@ -10,7 +10,7 @@ import pandas as pd
 import os
 import json
 import base64
-import psycopg2
+import sqlite3
 from datetime import datetime
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
@@ -41,55 +41,19 @@ if "logado" not in st.session_state:
         st.session_state["logado"] = False
         st.session_state["usuario"] = None
         st.session_state["perfil"] = None
-
 # ========================
 # CONFIG STREAMLIT
 # ========================
 st.set_page_config(layout="wide")
 
 # ========================
-# SUPABASE — CONFIGURAÇÃO
-# 🔁 MIGRAÇÃO SQLITE → POSTGRES
-# 🚀 COM POOL DE CONEXÕES (ALTA PERFORMANCE)
+# SQLITE — CONFIGURAÇÃO
 # ========================
+DB_FILE = "pouch_embalagens_petiko.db"
 
-import psycopg2
-from psycopg2.pool import SimpleConnectionPool
-
-# -------------------------------------------------
-# POOL DE CONEXÕES (CRIADO UMA ÚNICA VEZ)
-# -------------------------------------------------
-@st.cache_resource
-def get_pool():
-    cfg = st.secrets["database"]
-    return SimpleConnectionPool(
-        minconn=1,
-        maxconn=10,
-        host=cfg["host"],
-        dbname=cfg["dbname"],
-        user=cfg["user"],
-        password=cfg["password"],
-        port=cfg["port"],
-        sslmode="require"
-    )
-
-# -------------------------------------------------
-# OBTÉM CONEXÃO DO POOL
-# -------------------------------------------------
 def get_conn():
-    pool = get_pool()
-    return pool.getconn()
+    return sqlite3.connect(DB_FILE, check_same_thread=False)
 
-# -------------------------------------------------
-# DEVOLVE CONEXÃO AO POOL
-# -------------------------------------------------
-def release_conn(conn):
-    pool = get_pool()
-    pool.putconn(conn)
-
-# -------------------------------------------------
-# INICIALIZA BANCO (IDEMPOTENTE)
-# -------------------------------------------------
 def init_db():
     conn = get_conn()
     cur = conn.cursor()
@@ -114,7 +78,7 @@ def init_db():
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS itens_pedido (
-            id SERIAL PRIMARY KEY,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             pedido TEXT,
             sku TEXT,
             descricao TEXT,
@@ -124,7 +88,7 @@ def init_db():
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS movimentacoes (
-            id SERIAL PRIMARY KEY,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             data TEXT,
             sku TEXT,
             descricao TEXT,
@@ -138,7 +102,7 @@ def init_db():
     # 🔹 HISTÓRICO COM RESPONSÁVEL
     cur.execute("""
         CREATE TABLE IF NOT EXISTS historico_pedidos (
-            id SERIAL PRIMARY KEY,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             pedido TEXT,
             data TEXT,
             acao TEXT,
@@ -148,15 +112,12 @@ def init_db():
     """)
 
     conn.commit()
-    release_conn(conn)  # 🔥 DEVOLVE AO POOL (NÃO FECHA!)
+    conn.close()
 
-# -------------------------------------------------
-# EXECUTA NA INICIALIZAÇÃO
-# -------------------------------------------------
 init_db()
 
 # ========================
-# FUNÇÕES — LEITURA (POSTGRES)
+# FUNÇÕES SQLITE — LEITURA
 # ========================
 def ler_tabela(nome):
     conn = get_conn()
@@ -165,49 +126,21 @@ def ler_tabela(nome):
     return df
 
 # ========================
-# FUNÇÕES — SALVAR
-# (simula to_sql replace do SQLite)
+# FUNÇÕES SQLITE — SALVAR
 # ========================
 def salvar_tabela(nome, df):
     conn = get_conn()
-    cur = conn.cursor()
-
-    cur.execute(f"DELETE FROM {nome}")
-
-    if not df.empty:
-        cols = list(df.columns)
-        placeholders = ", ".join(["%s"] * len(cols))
-        colnames = ", ".join(cols)
-
-        for _, row in df.iterrows():
-            cur.execute(
-                f"INSERT INTO {nome} ({colnames}) VALUES ({placeholders})",
-                tuple(row.values)
-            )
-
-    conn.commit()
+    df.to_sql(nome, conn, if_exists="replace", index=False)
     conn.close()
 
 # ========================
 # LOAD GLOBAL (OBRIGATÓRIO)
 # ========================
-@st.cache_data(show_spinner=False)
-def load_all():
-    conn = get_conn()
-    return {
-        "produtos": pd.read_sql("SELECT * FROM produtos", conn),
-        "pedidos": pd.read_sql("SELECT * FROM pedidos", conn),
-        "itens": pd.read_sql("SELECT * FROM itens_pedido", conn),
-        "movs": pd.read_sql("SELECT * FROM movimentacoes", conn),
-        "hist": pd.read_sql("SELECT * FROM historico_pedidos", conn),
-    }
-dados = load_all()
-
-produtos = dados["produtos"]
-pedidos  = dados["pedidos"]
-itens    = dados["itens"]
-movs     = dados["movs"]
-hist     = dados["hist"]
+produtos = ler_tabela("produtos")
+pedidos  = ler_tabela("pedidos")
+itens    = ler_tabela("itens_pedido")
+movs     = ler_tabela("movimentacoes")
+hist     = ler_tabela("historico_pedidos")
 
 # ========================
 # GARANTE COLUNAS (ANTI-ERRO)
@@ -238,6 +171,7 @@ movs = garantir_colunas(
     ["data", "sku", "descricao", "tipo", "quantidade", "pedido", "obs"]
 )
 
+# 🔹 ALTERADO: garante coluna RESPONSAVEL
 hist = garantir_colunas(
     hist,
     ["pedido", "data", "acao", "detalhe", "responsavel"]
@@ -247,32 +181,12 @@ hist = garantir_colunas(
 # SAVE GLOBAL (ÚNICO)
 # ========================
 def save_all():
-    conn = get_conn()
-    cur = conn.cursor()
+    salvar_tabela("produtos", produtos)
+    salvar_tabela("pedidos", pedidos)
+    salvar_tabela("itens_pedido", itens)
+    salvar_tabela("movimentacoes", movs)
+    salvar_tabela("historico_pedidos", hist)
 
-    def replace_table(nome, df):
-        cur.execute(f"DELETE FROM {nome}")
-        if not df.empty:
-            cols = list(df.columns)
-            placeholders = ", ".join(["%s"] * len(cols))
-            colnames = ", ".join(cols)
-
-            for _, r in df.iterrows():
-                cur.execute(
-                    f"INSERT INTO {nome} ({colnames}) VALUES ({placeholders})",
-                    tuple(r.values)
-                )
-
-    replace_table("produtos", produtos)
-    replace_table("pedidos", pedidos)
-    replace_table("itens_pedido", itens)
-    replace_table("movimentacoes", movs)
-    replace_table("historico_pedidos", hist)
-
-    conn.commit()
-
-    # 🔥 LIMPA CACHE APÓS SALVAR
-    load_all.clear()
 # ========================
 # LEITURA SEGURA dados_fin
 # ========================
@@ -293,31 +207,23 @@ def ler_dados_fin(pedido):
 # ========================
 # HISTÓRICO DE PEDIDOS
 # ========================
-# ========================
-# HISTÓRICO DE PEDIDOS
-# (POSTGRES — INSERÇÃO DIRETA, SEM REGRAVAR TABELA)
-# ========================
 def registrar_historico(pedido, acao, detalhe):
+    global hist
+
     usuario = st.session_state.get("usuario", "sistema")
 
-    conn = get_conn()
-    cur = conn.cursor()
+    novo = pd.DataFrame([{
+        "pedido": pedido,
+        "data": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+        "acao": acao,
+        "detalhe": detalhe,
+        "responsavel": usuario
+    }])
 
-    cur.execute("""
-        INSERT INTO historico_pedidos
-            (pedido, data, acao, detalhe, responsavel)
-        VALUES (%s, %s, %s, %s, %s)
-    """, (
-        pedido,
-        datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
-        acao,
-        detalhe,
-        usuario
-    ))
+    hist = pd.concat([hist, novo], ignore_index=True)
+    salvar_tabela("historico_pedidos", hist)
 
-    conn.commit()
-    release_conn(conn)
-    
+
 def ultimo_comentario_analista(pedido):
     f = hist[
         (hist["pedido"] == pedido) &
@@ -328,25 +234,25 @@ def ultimo_comentario_analista(pedido):
         return None
 
     return f.iloc[-1]["detalhe"]
-
 # ========================
 # MOVIMENTAÇÃO DE ESTOQUE
 # ========================
 def registrar_mov(sku, desc, tipo, qtd, pedido="", obs=""):
-    conn = get_conn()
-    cur = conn.cursor()
+    global movs
 
-    cur.execute("""
-        INSERT INTO movimentacoes
-        (data, sku, descricao, tipo, quantidade, pedido, obs)
-        VALUES (%s,%s,%s,%s,%s,%s,%s)
-    """, (
-        datetime.now().strftime("%d/%m/%Y %H:%M"),
-        sku, desc, tipo, int(qtd), pedido, obs
-    ))
+    novo = pd.DataFrame([{
+        "data": datetime.now().strftime("%d/%m/%Y %H:%M"),
+        "sku": sku,
+        "descricao": desc,
+        "tipo": tipo,
+        "quantidade": int(qtd),
+        "pedido": pedido,
+        "obs": obs
+    }])
 
-    conn.commit()
-    release_conn(conn)
+    movs = pd.concat([movs, novo], ignore_index=True)
+    salvar_tabela("movimentacoes", movs)
+
 # ========================
 # STATUS COLORS (GLOBAL)
 # ========================
@@ -534,19 +440,22 @@ section[data-testid="stSidebar"] button div {
 .cell   { font-size:15px; }
 .sku    { font-size:17px; font-weight:800; }
 .box    { padding:6px; border-bottom:1px solid #eee; }
-
 /* ================= REMOVE OLHO DO CAMPO PASSWORD ================= */
+
+/* botão de mostrar senha */
 input[type="password"]::-ms-reveal,
 input[type="password"]::-ms-clear {
     display: none;
 }
 
+/* Chrome / Edge / Safari */
 input[type="password"]::-webkit-credentials-auto-fill-button,
 input[type="password"]::-webkit-textfield-decoration-container {
     display: none !important;
 }
+/* ================= INPUTS DA SIDEBAR — AZUL ESCURO ================= */
 
-/* ================= INPUTS DA SIDEBAR ================= */
+/* container do input */
 section[data-testid="stSidebar"] input {
     background: #0b1c2d !important;
     color: #ffffff !important;
@@ -554,10 +463,12 @@ section[data-testid="stSidebar"] input {
     box-shadow: none !important;
 }
 
+/* placeholder */
 section[data-testid="stSidebar"] input::placeholder {
     color: rgba(255,255,255,0.6) !important;
 }
 
+/* foco */
 section[data-testid="stSidebar"] input:focus {
     background: #0b1c2d !important;
     color: #ffffff !important;
@@ -566,15 +477,24 @@ section[data-testid="stSidebar"] input:focus {
     outline: none !important;
 }
 
+/* remove qualquer fundo branco interno */
+section[data-testid="stSidebar"] input div,
+section[data-testid="stSidebar"] input span {
+    background: transparent !important;
+}
+
+/* wrapper do input (Streamlit) */
 section[data-testid="stSidebar"] div[data-baseweb="input"] {
     background: #0b1c2d !important;
     border-radius: 8px;
 }
 
+/* hover */
 section[data-testid="stSidebar"] div[data-baseweb="input"]:hover {
     background: #102a43 !important;
 }
 
+/* ícone (olho) — mantém invisível e sem fundo */
 section[data-testid="stSidebar"] div[data-baseweb="input"] svg {
     fill: #ffffff !important;
     background: transparent !important;
@@ -582,7 +502,6 @@ section[data-testid="stSidebar"] div[data-baseweb="input"] svg {
 
 </style>
 """, unsafe_allow_html=True)
-
 # =================================================
 # HEADER + MARCA D’ÁGUA
 # =================================================
@@ -611,10 +530,9 @@ st.markdown(
 # =====================================================
 
 import hashlib
-import psycopg2
 
 # =====================================================
-# CRIA TABELA DE USUÁRIOS (POSTGRES)
+# CRIA TABELA DE USUÁRIOS (SE NÃO EXISTIR)
 # =====================================================
 def criar_tabela_usuarios():
     conn = get_conn()
@@ -622,7 +540,7 @@ def criar_tabela_usuarios():
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS usuarios (
-            id SERIAL PRIMARY KEY,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             usuario TEXT UNIQUE NOT NULL,
             senha TEXT NOT NULL,
             perfil TEXT NOT NULL,
@@ -634,11 +552,13 @@ def criar_tabela_usuarios():
     conn.commit()
     conn.close()
 
+
 # =====================================================
 # HASH DE SENHA
 # =====================================================
 def hash_senha(senha):
     return hashlib.sha256(senha.encode()).hexdigest()
+
 
 # =====================================================
 # CRIAR USUÁRIO
@@ -650,21 +570,23 @@ def criar_usuario(usuario, senha, perfil):
     try:
         c.execute("""
             INSERT INTO usuarios (usuario, senha, perfil, ativo, criado_em)
-            VALUES (%s, %s, %s, 1, %s)
+            VALUES (?, ?, ?, 1, ?)
         """, (
             usuario,
             hash_senha(senha),
             perfil,
             datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         ))
+
         conn.commit()
         sucesso = True
-    except psycopg2.errors.UniqueViolation:
-        conn.rollback()
+
+    except sqlite3.IntegrityError:
         sucesso = False
 
     conn.close()
     return sucesso
+
 
 # =====================================================
 # VALIDAR LOGIN
@@ -676,8 +598,8 @@ def validar_login(usuario, senha):
     c.execute("""
         SELECT usuario, perfil
         FROM usuarios
-        WHERE usuario = %s
-          AND senha = %s
+        WHERE usuario = ?
+          AND senha = ?
           AND ativo = 1
     """, (
         usuario,
@@ -688,9 +610,12 @@ def validar_login(usuario, senha):
     conn.close()
 
     if row:
-        return {"usuario": row[0], "perfil": row[1]}
-    return None
+        return {
+            "usuario": row[0],
+            "perfil": row[1]
+        }
 
+    return None
 # =====================================================
 # ALTERAR SENHA DO PRÓPRIO USUÁRIO
 # =====================================================
@@ -700,8 +625,8 @@ def alterar_senha(usuario, nova_senha):
 
     c.execute("""
         UPDATE usuarios
-        SET senha = %s
-        WHERE usuario = %s
+        SET senha = ?
+        WHERE usuario = ?
           AND ativo = 1
     """, (
         hash_senha(nova_senha),
@@ -711,22 +636,27 @@ def alterar_senha(usuario, nova_senha):
     conn.commit()
     conn.close()
 
+
 # =====================================================
-# GARANTE TABELA E CRIA USUÁRIO TESTE
+# GARANTE TABELA E CRIA USUÁRIO TESTE (RODAR UMA VEZ)
 # =====================================================
 criar_tabela_usuarios()
 criar_usuario("humberto", "1234", "ANALISTA")
+
 
 # =====================================================
 # ======================== LOGIN ======================
 # =====================================================
 
+# -------- LOGOUT --------
 def logout():
     st.session_state["logado"] = False
     st.session_state["usuario"] = None
     st.session_state["perfil"] = None
     st.rerun()
 
+
+# -------- TELA DE LOGIN --------
 def tela_login():
     st.markdown("<br><br>", unsafe_allow_html=True)
 
@@ -762,6 +692,7 @@ def tela_login():
                 st.session_state["usuario"] = dados["usuario"]
                 st.session_state["perfil"] = dados["perfil"]
 
+                # 🔐 SALVA COOKIE AQUI (SÓ AQUI)
                 cookies["logado"] = "true"
                 cookies["usuario"] = dados["usuario"]
                 cookies["perfil"] = dados["perfil"]
@@ -771,24 +702,81 @@ def tela_login():
             else:
                 st.error("Usuário ou senha inválidos")
 
+
+# -------- BLOQUEIO GLOBAL --------
 if not st.session_state["logado"]:
     tela_login()
     st.stop()
-
 # =====================================================
 # CONTROLE DE ACESSO POR PERFIL
 # =====================================================
 PERMISSOES = {
     "ANALISTA": [
-        "📦 Produtos","🧾 Pedidos","📋 Estoque","🏭 Innova",
-        "🕵️ Analista","🗂️ Gerenciador","📍 Acompanhar Fluxo","👤 Usuários"
+        "📦 Produtos",
+        "🧾 Pedidos",
+        "📋 Estoque",
+        "🏭 Innova",
+        "🕵️ Analista",
+        "🗂️ Gerenciador",
+        "📍 Acompanhar Fluxo",
+        "👤 Usuários"
     ],
-    "PRODUTO": ["📦 Produtos","🧾 Pedidos","📍 Acompanhar Fluxo"],
-    "ESTOQUE": ["📦 Produtos","📋 Estoque","📍 Acompanhar Fluxo"],
-    "INNOVA": ["🏭 Innova","📍 Acompanhar Fluxo"]
+    "PRODUTO": [
+        "📦 Produtos",
+        "🧾 Pedidos",
+        "📍 Acompanhar Fluxo"
+    ],
+    "ESTOQUE": [
+        "📦 Produtos",
+        "📋 Estoque",
+        "📍 Acompanhar Fluxo"
+    ],
+    "INNOVA": [
+        "🏭 Innova",
+        "📍 Acompanhar Fluxo"
+    ]
 }
-
+# -------- RODAPÉ FIXO DA SIDEBAR (APENAS INFORMAÇÕES DO USUÁRIO) --------
 with st.sidebar:
+
+    st.markdown("""
+    <style>
+    /* container real da sidebar */
+    div[data-testid="stSidebarContent"] {
+        position: relative;
+        min-height: 100vh;
+        padding-bottom: 60px;
+    }
+
+    .sidebar-footer {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        padding: 12px 14px;
+        display: flex;
+        align-items: center;
+        background: linear-gradient(180deg, #0b1c2d, #102a43);
+        border-top: 1px solid rgba(255,255,255,0.15);
+        z-index: 999;
+    }
+
+    .sidebar-user {
+        display: flex;
+        flex-direction: column;
+        font-size: 13px;
+        line-height: 1.2;
+        font-weight: 700;
+    }
+
+    .sidebar-user small {
+        font-size: 11px;
+        opacity: 0.85;
+        font-weight: 600;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
     st.markdown(
         f"""
         <div class="sidebar-footer">
