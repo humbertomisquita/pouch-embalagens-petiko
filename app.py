@@ -1,7 +1,3 @@
-# =====================================================
-# MÓDULO 1 — BASE FUNCIONAL GLOBAL (SQLITE)
-# =====================================================
-
 # ========================
 # IMPORTS
 # ========================
@@ -10,18 +6,21 @@ import pandas as pd
 import os
 import json
 import base64
-import sqlite3
 from datetime import datetime
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from streamlit_cookies_manager import EncryptedCookieManager
-import streamlit as st
-st.write(st.secrets["database"]["host"])
-
-st.session_state.setdefault("bloquear_cookie", False)
-import streamlit as st
 import psycopg2
 
+# ========================
+# CONFIG STREAMLIT
+# ========================
+st.set_page_config(layout="wide")
+
+# ========================
+# CONEXÃO POSTGRES (SUPABASE)
+# 🔁 MIGRAÇÃO POSTGRES — substitui SQLite
+# ========================
 def get_conn():
     cfg = st.secrets["database"]
     return psycopg2.connect(
@@ -33,18 +32,21 @@ def get_conn():
         sslmode="require"
     )
 
-st.title("Teste Supabase")
-
+# ========================
+# TESTE DE CONEXÃO (INALTERADO NA LÓGICA)
+# ========================
 try:
     conn = get_conn()
     conn.close()
-    st.success("✅ Conectado ao Supabase")
 except Exception as e:
-    st.error(f"❌ Erro: {e}")
+    st.error(f"Erro de conexão com banco: {e}")
+    st.stop()
 
 # ========================
 # COOKIES + SESSÃO (ÚNICO PONTO)
 # ========================
+st.session_state.setdefault("bloquear_cookie", False)
+
 cookies = EncryptedCookieManager(
     prefix="petiko_app",
     password="COLOQUE_UMA_SENHA_FORTE_AQUI"
@@ -65,19 +67,11 @@ if "logado" not in st.session_state:
         st.session_state["logado"] = False
         st.session_state["usuario"] = None
         st.session_state["perfil"] = None
-# ========================
-# CONFIG STREAMLIT
-# ========================
-st.set_page_config(layout="wide")
 
 # ========================
-# SQLITE — CONFIGURAÇÃO
+# INIT DB — POSTGRES
+# 🔁 MIGRAÇÃO POSTGRES
 # ========================
-DB_FILE = "pouch_embalagens_petiko.db"
-
-def get_conn():
-    return sqlite3.connect(DB_FILE, check_same_thread=False)
-
 def init_db():
     conn = get_conn()
     cur = conn.cursor()
@@ -102,7 +96,7 @@ def init_db():
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS itens_pedido (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             pedido TEXT,
             sku TEXT,
             descricao TEXT,
@@ -112,7 +106,7 @@ def init_db():
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS movimentacoes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             data TEXT,
             sku TEXT,
             descricao TEXT,
@@ -123,10 +117,9 @@ def init_db():
         )
     """)
 
-    # 🔹 HISTÓRICO COM RESPONSÁVEL
     cur.execute("""
         CREATE TABLE IF NOT EXISTS historico_pedidos (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             pedido TEXT,
             data TEXT,
             acao TEXT,
@@ -141,7 +134,8 @@ def init_db():
 init_db()
 
 # ========================
-# FUNÇÕES SQLITE — LEITURA
+# FUNÇÕES — LEITURA
+# 🔁 MIGRAÇÃO POSTGRES
 # ========================
 def ler_tabela(nome):
     conn = get_conn()
@@ -150,11 +144,28 @@ def ler_tabela(nome):
     return df
 
 # ========================
-# FUNÇÕES SQLITE — SALVAR
+# FUNÇÕES — SALVAR (SIMULA SQLite)
+# 🔁 MIGRAÇÃO POSTGRES
 # ========================
 def salvar_tabela(nome, df):
     conn = get_conn()
-    df.to_sql(nome, conn, if_exists="replace", index=False)
+    cur = conn.cursor()
+
+    # apaga tudo (equivalente ao replace do SQLite)
+    cur.execute(f"DELETE FROM {nome}")
+
+    if not df.empty:
+        cols = list(df.columns)
+        placeholders = ", ".join(["%s"] * len(cols))
+        colnames = ", ".join(cols)
+
+        for _, row in df.iterrows():
+            cur.execute(
+                f"INSERT INTO {nome} ({colnames}) VALUES ({placeholders})",
+                tuple(row.values)
+            )
+
+    conn.commit()
     conn.close()
 
 # ========================
@@ -195,7 +206,6 @@ movs = garantir_colunas(
     ["data", "sku", "descricao", "tipo", "quantidade", "pedido", "obs"]
 )
 
-# 🔹 ALTERADO: garante coluna RESPONSAVEL
 hist = garantir_colunas(
     hist,
     ["pedido", "data", "acao", "detalhe", "responsavel"]
@@ -247,7 +257,6 @@ def registrar_historico(pedido, acao, detalhe):
     hist = pd.concat([hist, novo], ignore_index=True)
     salvar_tabela("historico_pedidos", hist)
 
-
 def ultimo_comentario_analista(pedido):
     f = hist[
         (hist["pedido"] == pedido) &
@@ -258,6 +267,7 @@ def ultimo_comentario_analista(pedido):
         return None
 
     return f.iloc[-1]["detalhe"]
+
 # ========================
 # MOVIMENTAÇÃO DE ESTOQUE
 # ========================
