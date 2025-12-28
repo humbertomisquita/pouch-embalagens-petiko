@@ -436,3 +436,119 @@ def save_all():
     salvar_tabela("itens_pedido", itens)
     salvar_tabela("movimentacoes", movs)
     salvar_tabela("historico_pedidos", hist)
+# =====================================================
+# ======================== USUÁRIOS ===================
+# =====================================================
+
+import hashlib
+import psycopg2
+
+# =====================================================
+# CRIA TABELA DE USUÁRIOS (POSTGRES)
+# =====================================================
+def criar_tabela_usuarios():
+    conn = get_conn()
+    c = conn.cursor()
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS usuarios (
+            id SERIAL PRIMARY KEY,
+            usuario TEXT UNIQUE NOT NULL,
+            senha TEXT NOT NULL,
+            perfil TEXT NOT NULL,
+            ativo INTEGER DEFAULT 1,
+            criado_em TEXT
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+# =====================================================
+# HASH DE SENHA
+# =====================================================
+def hash_senha(senha):
+    return hashlib.sha256(senha.encode()).hexdigest()
+
+# =====================================================
+# CRIAR USUÁRIO
+# =====================================================
+def criar_usuario(usuario, senha, perfil):
+    conn = get_conn()
+    c = conn.cursor()
+
+    try:
+        c.execute("""
+            INSERT INTO usuarios (usuario, senha, perfil, ativo, criado_em)
+            VALUES (%s, %s, %s, 1, %s)
+        """, (
+            usuario,
+            hash_senha(senha),
+            perfil,
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ))
+
+        conn.commit()
+        sucesso = True
+
+    except psycopg2.errors.UniqueViolation:
+        conn.rollback()
+        sucesso = False
+
+    conn.close()
+    return sucesso
+
+# =====================================================
+# VALIDAR LOGIN
+# =====================================================
+def validar_login(usuario, senha):
+    conn = get_conn()
+    c = conn.cursor()
+
+    c.execute("""
+        SELECT usuario, perfil
+        FROM usuarios
+        WHERE usuario = %s
+          AND senha = %s
+          AND ativo = 1
+    """, (
+        usuario,
+        hash_senha(senha)
+    ))
+
+    row = c.fetchone()
+    conn.close()
+
+    if row:
+        return {
+            "usuario": row[0],
+            "perfil": row[1]
+        }
+
+    return None
+
+# =====================================================
+# ALTERAR SENHA DO PRÓPRIO USUÁRIO
+# =====================================================
+def alterar_senha(usuario, nova_senha):
+    conn = get_conn()
+    c = conn.cursor()
+
+    c.execute("""
+        UPDATE usuarios
+        SET senha = %s
+        WHERE usuario = %s
+          AND ativo = 1
+    """, (
+        hash_senha(nova_senha),
+        usuario
+    ))
+
+    conn.commit()
+    conn.close()
+
+# =====================================================
+# GARANTE TABELA E CRIA USUÁRIO INICIAL
+# =====================================================
+criar_tabela_usuarios()
+criar_usuario("humberto", "1234", "ANALISTA")
