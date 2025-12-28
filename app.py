@@ -50,10 +50,21 @@ st.set_page_config(layout="wide")
 # ========================
 # SUPABASE — CONFIGURAÇÃO
 # 🔁 MIGRAÇÃO SQLITE → POSTGRES
+# 🚀 COM POOL DE CONEXÕES (ALTA PERFORMANCE)
 # ========================
-def get_conn():
+
+import psycopg2
+from psycopg2.pool import SimpleConnectionPool
+
+# -------------------------------------------------
+# POOL DE CONEXÕES (CRIADO UMA ÚNICA VEZ)
+# -------------------------------------------------
+@st.cache_resource
+def get_pool():
     cfg = st.secrets["database"]
-    return psycopg2.connect(
+    return SimpleConnectionPool(
+        minconn=1,
+        maxconn=10,
         host=cfg["host"],
         dbname=cfg["dbname"],
         user=cfg["user"],
@@ -62,6 +73,23 @@ def get_conn():
         sslmode="require"
     )
 
+# -------------------------------------------------
+# OBTÉM CONEXÃO DO POOL
+# -------------------------------------------------
+def get_conn():
+    pool = get_pool()
+    return pool.getconn()
+
+# -------------------------------------------------
+# DEVOLVE CONEXÃO AO POOL
+# -------------------------------------------------
+def release_conn(conn):
+    pool = get_pool()
+    pool.putconn(conn)
+
+# -------------------------------------------------
+# INICIALIZA BANCO (IDEMPOTENTE)
+# -------------------------------------------------
 def init_db():
     conn = get_conn()
     cur = conn.cursor()
@@ -120,8 +148,11 @@ def init_db():
     """)
 
     conn.commit()
-    conn.close()
+    release_conn(conn)  # 🔥 DEVOLVE AO POOL (NÃO FECHA!)
 
+# -------------------------------------------------
+# EXECUTA NA INICIALIZAÇÃO
+# -------------------------------------------------
 init_db()
 
 # ========================
@@ -262,22 +293,31 @@ def ler_dados_fin(pedido):
 # ========================
 # HISTÓRICO DE PEDIDOS
 # ========================
+# ========================
+# HISTÓRICO DE PEDIDOS
+# (POSTGRES — INSERÇÃO DIRETA, SEM REGRAVAR TABELA)
+# ========================
 def registrar_historico(pedido, acao, detalhe):
-    global hist
-
     usuario = st.session_state.get("usuario", "sistema")
 
-    novo = pd.DataFrame([{
-        "pedido": pedido,
-        "data": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
-        "acao": acao,
-        "detalhe": detalhe,
-        "responsavel": usuario
-    }])
+    conn = get_conn()
+    cur = conn.cursor()
 
-    hist = pd.concat([hist, novo], ignore_index=True)
-    salvar_tabela("historico_pedidos", hist)
+    cur.execute("""
+        INSERT INTO historico_pedidos
+            (pedido, data, acao, detalhe, responsavel)
+        VALUES (%s, %s, %s, %s, %s)
+    """, (
+        pedido,
+        datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+        acao,
+        detalhe,
+        usuario
+    ))
 
+    conn.commit()
+    release_conn(conn)
+    
 def ultimo_comentario_analista(pedido):
     f = hist[
         (hist["pedido"] == pedido) &
@@ -293,21 +333,20 @@ def ultimo_comentario_analista(pedido):
 # MOVIMENTAÇÃO DE ESTOQUE
 # ========================
 def registrar_mov(sku, desc, tipo, qtd, pedido="", obs=""):
-    global movs
+    conn = get_conn()
+    cur = conn.cursor()
 
-    novo = pd.DataFrame([{
-        "data": datetime.now().strftime("%d/%m/%Y %H:%M"),
-        "sku": sku,
-        "descricao": desc,
-        "tipo": tipo,
-        "quantidade": int(qtd),
-        "pedido": pedido,
-        "obs": obs
-    }])
+    cur.execute("""
+        INSERT INTO movimentacoes
+        (data, sku, descricao, tipo, quantidade, pedido, obs)
+        VALUES (%s,%s,%s,%s,%s,%s,%s)
+    """, (
+        datetime.now().strftime("%d/%m/%Y %H:%M"),
+        sku, desc, tipo, int(qtd), pedido, obs
+    ))
 
-    movs = pd.concat([movs, novo], ignore_index=True)
-    salvar_tabela("movimentacoes", movs)
-
+    conn.commit()
+    release_conn(conn)
 # ========================
 # STATUS COLORS (GLOBAL)
 # ========================
