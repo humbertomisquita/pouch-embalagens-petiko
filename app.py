@@ -160,11 +160,23 @@ def salvar_tabela(nome, df):
 # ========================
 # LOAD GLOBAL (OBRIGATÓRIO)
 # ========================
-produtos = ler_tabela("produtos")
-pedidos  = ler_tabela("pedidos")
-itens    = ler_tabela("itens_pedido")
-movs     = ler_tabela("movimentacoes")
-hist     = ler_tabela("historico_pedidos")
+@st.cache_data(show_spinner=False)
+def load_all():
+    conn = get_conn()
+    return {
+        "produtos": pd.read_sql("SELECT * FROM produtos", conn),
+        "pedidos": pd.read_sql("SELECT * FROM pedidos", conn),
+        "itens": pd.read_sql("SELECT * FROM itens_pedido", conn),
+        "movs": pd.read_sql("SELECT * FROM movimentacoes", conn),
+        "hist": pd.read_sql("SELECT * FROM historico_pedidos", conn),
+    }
+dados = load_all()
+
+produtos = dados["produtos"]
+pedidos  = dados["pedidos"]
+itens    = dados["itens"]
+movs     = dados["movs"]
+hist     = dados["hist"]
 
 # ========================
 # GARANTE COLUNAS (ANTI-ERRO)
@@ -204,12 +216,32 @@ hist = garantir_colunas(
 # SAVE GLOBAL (ÚNICO)
 # ========================
 def save_all():
-    salvar_tabela("produtos", produtos)
-    salvar_tabela("pedidos", pedidos)
-    salvar_tabela("itens_pedido", itens)
-    salvar_tabela("movimentacoes", movs)
-    salvar_tabela("historico_pedidos", hist)
+    conn = get_conn()
+    cur = conn.cursor()
 
+    def replace_table(nome, df):
+        cur.execute(f"DELETE FROM {nome}")
+        if not df.empty:
+            cols = list(df.columns)
+            placeholders = ", ".join(["%s"] * len(cols))
+            colnames = ", ".join(cols)
+
+            for _, r in df.iterrows():
+                cur.execute(
+                    f"INSERT INTO {nome} ({colnames}) VALUES ({placeholders})",
+                    tuple(r.values)
+                )
+
+    replace_table("produtos", produtos)
+    replace_table("pedidos", pedidos)
+    replace_table("itens_pedido", itens)
+    replace_table("movimentacoes", movs)
+    replace_table("historico_pedidos", hist)
+
+    conn.commit()
+
+    # 🔥 LIMPA CACHE APÓS SALVAR
+    load_all.clear()
 # ========================
 # LEITURA SEGURA dados_fin
 # ========================
