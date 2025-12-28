@@ -18,6 +18,18 @@ from streamlit_cookies_manager import EncryptedCookieManager
 
 st.session_state.setdefault("bloquear_cookie", False)
 
+import shutil
+import glob
+
+SNAP_DIR = "snapshots"
+DB_FILE = "pouch_embalagens_petiko.db"
+
+def snapshot_db(motivo):
+    os.makedirs(SNAP_DIR, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    nome = f"{SNAP_DIR}/db_{ts}_{motivo}.sqlite"
+    shutil.copy(DB_FILE, nome)
+
 # ========================
 # COOKIES + SESSÃO (ÚNICO PONTO)
 # ========================
@@ -53,6 +65,16 @@ DB_FILE = "pouch_embalagens_petiko.db"
 
 def get_conn():
     return sqlite3.connect(DB_FILE, check_same_thread=False)
+    
+def restaurar_db():
+    if os.path.exists(DB_FILE):
+        return
+
+    snaps = sorted(glob.glob(f"{SNAP_DIR}/*.sqlite"))
+    if snaps:
+        shutil.copy(snaps[-1], DB_FILE)
+
+restaurar_db()
 
 def init_db():
     conn = get_conn()
