@@ -19,6 +19,28 @@ import streamlit as st
 st.write(st.secrets["database"]["host"])
 
 st.session_state.setdefault("bloquear_cookie", False)
+import streamlit as st
+import psycopg2
+
+def get_conn():
+    cfg = st.secrets["database"]
+    return psycopg2.connect(
+        host=cfg["host"],
+        dbname=cfg["dbname"],
+        user=cfg["user"],
+        password=cfg["password"],
+        port=cfg["port"],
+        sslmode="require"
+    )
+
+st.title("Teste Supabase")
+
+try:
+    conn = get_conn()
+    conn.close()
+    st.success("✅ Conectado ao Supabase")
+except Exception as e:
+    st.error(f"❌ Erro: {e}")
 
 # ========================
 # COOKIES + SESSÃO (ÚNICO PONTO)
