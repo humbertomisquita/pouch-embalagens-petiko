@@ -3,7 +3,3 @@ pandas
 reportlab
 streamlit-cookies-manager
 psycopg2-binary
-# SQLite ativo
-pouch_embalagens_petiko.db
-pouch_embalagens_petiko.db-wal
-pouch_embalagens_petiko.db-shm
