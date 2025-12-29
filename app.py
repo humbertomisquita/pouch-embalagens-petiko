@@ -18,18 +18,6 @@ from streamlit_cookies_manager import EncryptedCookieManager
 
 st.session_state.setdefault("bloquear_cookie", False)
 
-import shutil
-import glob
-
-SNAP_DIR = "snapshots"
-DB_FILE = "pouch_embalagens_petiko.db"
-
-def snapshot_db(motivo):
-    os.makedirs(SNAP_DIR, exist_ok=True)
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    nome = f"{SNAP_DIR}/db_{ts}_{motivo}.sqlite"
-    shutil.copy(DB_FILE, nome)
-
 # ========================
 # COOKIES + SESSÃO (ÚNICO PONTO)
 # ========================
@@ -65,16 +53,6 @@ DB_FILE = "pouch_embalagens_petiko.db"
 
 def get_conn():
     return sqlite3.connect(DB_FILE, check_same_thread=False)
-    
-def restaurar_db():
-    if os.path.exists(DB_FILE):
-        return
-
-    snaps = sorted(glob.glob(f"{SNAP_DIR}/*.sqlite"))
-    if snaps:
-        shutil.copy(snaps[-1], DB_FILE)
-
-restaurar_db()
 
 def init_db():
     conn = get_conn()
@@ -1005,7 +983,6 @@ if menu == "📦 Produtos":
                     )
 
                     save_all()
-                    snapshot_db("novo_produto")
                     st.success("Produto cadastrado com sucesso.")
                     st.rerun()
 
@@ -1370,7 +1347,8 @@ if menu == "🧾 Pedidos":
             ] = "SEPARACAO"
 
             save_all()
-            snapshot_db("pedido_finalizado")
+            st.session_state.pop("pedido_aberto")
+            st.session_state.pop("modo")
             st.rerun()
 
         if col2.button("❌ Cancelar Pedido"):
@@ -1383,11 +1361,11 @@ if menu == "🧾 Pedidos":
                 inplace=True
             )
             save_all()
-            snapshot_db("pedido_cancelado")
+            st.session_state.pop("pedido_aberto")
+            st.session_state.pop("modo")
             st.rerun()
-            
+
         if col3.button("🔙 Fechar"):
-            snapshot_db("pedido_fechado")
             st.session_state.pop("pedido_aberto")
             st.session_state.pop("modo")
             st.rerun()
@@ -1570,7 +1548,6 @@ if menu == "📋 Estoque":
             # ---------------- PDF DE ESTOQUE ----------------
             if col1.button("📄 Gerar Relatório", key=f"pdf_{pedido}"):
                 arq = gerar_pdf_estoque(p["pedido"])
-                snapshot_db("estoque_pdf")
                 with open(arq, "rb") as f:
                     st.download_button(
                         "⬇️ Baixar PDF",
@@ -1587,7 +1564,6 @@ if menu == "📋 Estoque":
                 ] = "CANCELADO"
 
                 save_all()
-                snapshot_db("estoque_cancelado")
                 st.success("Pedido cancelado.")
                 st.rerun()
 
@@ -1615,7 +1591,6 @@ if menu == "📋 Estoque":
                 ] = "MONTAGEM"
 
                 save_all()
-                snapshot_db("estoque_finalizado")
                 st.success(
                     "Estoque abatido e pedido enviado para Montagem."
                 )
