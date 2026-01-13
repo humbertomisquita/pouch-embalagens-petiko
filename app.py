@@ -1373,6 +1373,8 @@ if menu == "🧾 Pedidos":
 # 📄 PDF DE ESTOQUE — RELATÓRIO DE SEPARAÇÃO (INTEGRAL)
 # =====================================================
 
+import os
+import tempfile
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from datetime import datetime
@@ -1381,13 +1383,99 @@ from datetime import datetime
 def gerar_pdf_estoque(pedido):
     """
     Gera o PDF de separação de estoque para um pedido.
-    Retorna o nome do arquivo gerado.
+    Retorna o caminho completo do arquivo gerado.
     """
 
-    nome = f"RELATORIO_ESTOQUE_{pedido}_{datetime.now().strftime('%d-%m-%Y')}.pdf"
-    c = canvas.Canvas(nome, pagesize=A4)
+    # 📁 diretório temporário seguro (Streamlit Cloud)
+    pasta = tempfile.gettempdir()
+
+    nome_arquivo = (
+        f"RELATORIO_ESTOQUE_{pedido}_"
+        f"{datetime.now().strftime('%d-%m-%Y')}.pdf"
+    )
+
+    caminho = os.path.join(pasta, nome_arquivo)
+
+    c = canvas.Canvas(caminho, pagesize=A4)
     w, h = A4
 
+    # =================================================
+    # TÍTULO
+    # =================================================
+    c.setFont("Helvetica-Bold", 18)
+    c.drawCentredString(
+        w / 2,
+        h - 40,
+        "RELATÓRIO DE SEPARAÇÃO – ESTOQUE"
+    )
+
+    # =================================================
+    # CABEÇALHO
+    # =================================================
+    c.setFont("Helvetica", 11)
+    c.drawString(40, h - 70, f"Pedido: {pedido}")
+    c.drawRightString(
+        w - 40,
+        h - 70,
+        f"Data: {datetime.now().strftime('%d/%m/%Y')}"
+    )
+
+    # =================================================
+    # CABEÇALHO DA TABELA
+    # =================================================
+    y = h - 120
+
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(40, y, "SKU")
+    c.drawString(140, y, "Descrição")
+    c.drawRightString(w - 40, y, "Quantidade")
+
+    y -= 6
+    c.line(40, y, w - 40, y)
+    y -= 18
+
+    # =================================================
+    # ITENS DO PEDIDO
+    # =================================================
+    c.setFont("Helvetica", 10)
+
+    itens_p = itens[itens["pedido"] == pedido]
+
+    if itens_p.empty:
+        c.drawString(40, y, "Nenhum item encontrado para este pedido.")
+    else:
+        for _, it in itens_p.iterrows():
+            c.drawString(40, y, str(it["sku"]))
+            c.drawString(140, y, str(it["descricao"]))
+            c.drawRightString(w - 40, y, str(int(it["quantidade"])))
+            y -= 16
+
+            if y < 120:
+                c.showPage()
+                c.setFont("Helvetica", 10)
+                y = h - 80
+
+                c.setFont("Helvetica-Bold", 11)
+                c.drawString(40, y, "SKU")
+                c.drawString(140, y, "Descrição")
+                c.drawRightString(w - 40, y, "Quantidade")
+                y -= 6
+                c.line(40, y, w - 40, y)
+                y -= 18
+                c.setFont("Helvetica", 10)
+
+    # =================================================
+    # ASSINATURAS
+    # =================================================
+    c.line(40, 90, 260, 90)
+    c.setFont("Helvetica", 10)
+    c.drawString(40, 75, "Assinatura INNOVA")
+
+    c.line(320, 90, w - 40, 90)
+    c.drawString(320, 75, "Assinatura PETIKO")
+
+    c.save()
+    return caminho
     # =================================================
     # TÍTULO
     # =================================================
